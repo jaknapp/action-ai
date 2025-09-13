@@ -10,8 +10,8 @@ class SessionCreate(BaseModel):
 @router.post('/sessions')
 async def create_session(payload: SessionCreate):
     # stub: real impl will persist and subscribe queue to topic
-    return {session_id: payload.session_id, topic_id: payload.topic_id}
+    return {"session_id": payload.session_id, "topic_id": payload.topic_id}
 
 @router.get('/health')
 async def health():
-    return {ok: True}
+    return {"ok": True}

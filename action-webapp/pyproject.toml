@@ -3,7 +3,10 @@ name = "action-webapp"
 version = "0.1.0"
 description = "Durable webapp for action terminal messages"
 authors = ["John Knapp <john.knappster@gmail.com>"]
+packages = [{include = "app"}]
 readme = "README.md"
+# Disable package mode so tests run without installing root as a package
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -32,3 +35,4 @@ build-backend = "poetry.core.masonry.api"
 [tool.pytest.ini_options]
 addopts = '-q'
 asyncio_mode = 'auto'
+pythonpath = ["."]
