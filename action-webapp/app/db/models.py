@@ -16,6 +16,9 @@ class Session(Base):
     processes: Mapped[list["Process"]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
     )
+    topics: Mapped[list["SessionTopic"]] = relationship(
+        back_populates="session", cascade="all, delete-orphan"
+    )
 
 
 class Process(Base):
@@ -87,3 +90,16 @@ class Output(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     command: Mapped["Command"] = relationship(back_populates="outputs")
+
+
+class SessionTopic(Base):
+    __tablename__ = "session_topics"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    session_id: Mapped[str] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE")
+    )
+    topic_id: Mapped[str] = mapped_column(String(256))
+    session: Mapped["Session"] = relationship(back_populates="topics")

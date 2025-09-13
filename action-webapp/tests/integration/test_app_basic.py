@@ -16,7 +16,7 @@ async def test_health():
 async def test_create_session_stub():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        payload = {"session_id": "s1", "topic_id": "t1"}
+        payload = {"topic_id": "t1"}
         resp = await ac.post("/api/sessions", json=payload)
         assert resp.status_code == 200
-        assert resp.json()["session_id"] == "s1"
+        assert "id" in resp.json()
