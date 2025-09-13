@@ -1,6 +1,6 @@
 from __future__ import annotations
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, create_engine
 from alembic import context
 import os
 from app.db.base import Base
@@ -29,16 +29,10 @@ def run_migrations_offline():
 
 
 def run_migrations_online():
-    connectable = engine_from_config(
-        {
-            "sqlalchemy.url": os.getenv(
-                "DATABASE_URL",
-                "postgresql+psycopg2://action:action@localhost:5432/action",
-            ),
-        },
-        prefix="",
-        poolclass=pool.NullPool,
+    url = os.getenv(
+        "DATABASE_URL", "postgresql+psycopg2://action:action@localhost:5432/action"
     )
+    connectable = create_engine(url, poolclass=pool.NullPool)
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():

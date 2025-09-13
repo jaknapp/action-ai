@@ -4,3 +4,6 @@
 - [x] Stream terminal output and session state to topics in action-terminal (2025-09-13T03:10:08Z)
 - [x] Expose state query API for sessions in action-terminal (2025-09-13T03:10:08Z)
 - [x] Add unit and integration tests for topics and state (2025-09-13T03:10:08Z)
+- [x] Add Postgres docker-compose for action-webapp (2025-09-13T17:51:16Z)
+- [x] Add SQLAlchemy models and Alembic setup (2025-09-13T17:51:16Z)
+- [x] Create initial Alembic migration for core tables (2025-09-13T17:51:16Z)

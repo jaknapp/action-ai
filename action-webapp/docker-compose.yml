@@ -7,27 +7,7 @@ services:
       POSTGRES_PASSWORD: action
       POSTGRES_DB: action
     ports:
-      - '5432:5432'
-    volumes:
-      - dbdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U action -d action']
-      interval: 5s
-      timeout: 5s
-      retries: 10
-volumes:
-  dbdata:
-
-version: '3.9'
-services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: action
-      POSTGRES_PASSWORD: action
-      POSTGRES_DB: action
-    ports:
-      - '5432:5432'
+      - '55432:5432'
     volumes:
       - dbdata:/var/lib/postgresql/data
     healthcheck:
