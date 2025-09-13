@@ -1,10 +1,10 @@
 # TODO
 
-- [ ] Design in-memory pub/sub topic manager for action-terminal
-- [ ] Add session-to-topic subscription management APIs to action-terminal
-- [ ] Stream terminal output and session state to topics in action-terminal
-- [ ] Expose state query API for sessions in action-terminal
-- [ ] Add unit and integration tests for topics and state
+- [x] Design in-memory pub/sub topic manager for action-terminal
+- [x] Add session-to-topic subscription management APIs to action-terminal
+- [x] Stream terminal output and session state to topics in action-terminal
+- [x] Expose state query API for sessions in action-terminal
+- [x] Add unit and integration tests for topics and state
 - [ ] Scaffold action-webapp (FastAPI, SQLAlchemy, Alembic, Postgres)
 - [ ] Implement sessions CRUD and queue subscription in action-webapp
 - [ ] Persist incoming messages to Postgres in action-webapp

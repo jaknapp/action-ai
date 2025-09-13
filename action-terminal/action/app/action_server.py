@@ -13,6 +13,7 @@ from action.app.action_server_types import (
     ActionServerWebsocketSnapshot,
 )
 from action.app.action_service import ActionService, ActionServiceObserver
+from action.app.topic_manager import TopicManager
 from action.app.action_service_types import (
     ActionServiceExecutionReference,
     ActionServiceExecutionRequest,
@@ -25,9 +26,13 @@ class ActionServerExecutionObserver(ActionServiceObserver):
         self,
         session_id_web_sockets: DefaultDict[str, list[web.WebSocketResponse]],
         execution_id_session_id_dict: dict[str, str],
+        topic_manager: TopicManager,
+        session_id_topics: DefaultDict[str, set[str]],
     ):
         self._session_id_web_sockets = session_id_web_sockets
         self._execution_id_session_id_dict = execution_id_session_id_dict
+        self._topic_manager = topic_manager
+        self._session_id_topics = session_id_topics
 
     async def receive_execution_response(
         self, response: ActionServiceExecutionResponse
@@ -61,17 +66,18 @@ class ActionServerExecutionObserver(ActionServiceObserver):
                 return {k: _coerce_bytes_to_text(v) for k, v in obj.items()}
             return obj
 
+        # Build payload once for both websockets and topic publishing
+        server_response = ActionServerExecutionResponse(
+            loopback_payload=response.loopback_payload,
+            new_processes=response.new_processes,
+            processes=response.processes,
+            error=response.error,
+        )
+        payload = server_response.model_dump(exclude_defaults=True)
+        payload = _coerce_bytes_to_text(payload)
+
         for web_socket in web_sockets:
             try:
-                server_response = ActionServerExecutionResponse(
-                    loopback_payload=response.loopback_payload,
-                    new_processes=response.new_processes,
-                    processes=response.processes,
-                    error=response.error,
-                )
-                payload = server_response.model_dump(exclude_defaults=True)
-                # Ensure payload is JSON-serializable by converting any bytes
-                payload = _coerce_bytes_to_text(payload)
                 print(f"Sending response {payload}")
                 await web_socket.send_json(payload)
                 active_web_sockets.append(web_socket)
@@ -84,6 +90,16 @@ class ActionServerExecutionObserver(ActionServiceObserver):
         
         # Update the list of websockets for this session
         self._session_id_web_sockets[session_id] = active_web_sockets
+
+        # Also publish to all session topics for at-least-once delivery
+        topics = self._session_id_topics.get(session_id, set())
+        if topics:
+            publish_payload = {"session_id": session_id, **payload}
+            for topic_id in topics:
+                try:
+                    await self._topic_manager.publish(topic_id, publish_payload)
+                except Exception as e:
+                    print(f"Error publishing to topic {topic_id}: {e}")
 
 
 def _get_request_log_values(
@@ -126,7 +142,7 @@ def _processes_state_list_to_dict(processes_state: list[dict] | None) -> dict:
 class ActionServer:
     """Handle web requests and invoke the ActionService"""
 
-    def __init__(self, action_service: ActionService):
+    def __init__(self, action_service: ActionService, topic_manager: TopicManager):
         self._action_service = action_service
         self._session_id_web_sockets: DefaultDict[
             str, list[web.WebSocketResponse]
@@ -135,9 +151,13 @@ class ActionServer:
             str, list[ActionServiceExecutionReference]
         ] = defaultdict(list)
         self._execution_id_session_id_dict: dict[str, str] = {}
+        self._session_id_topics: DefaultDict[str, set[str]] = defaultdict(set)
+        self._topic_manager = topic_manager
         observer = ActionServerExecutionObserver(
             session_id_web_sockets=self._session_id_web_sockets,
             execution_id_session_id_dict=self._execution_id_session_id_dict,
+            topic_manager=self._topic_manager,
+            session_id_topics=self._session_id_topics,
         )
         self._action_service.set_observer(observer)
         self._service = action_service
@@ -286,6 +306,86 @@ class ActionServer:
         )
         return web.json_response(response.model_dump(exclude_defaults=True))
 
+    async def add_topic(self, request: web.Request) -> web.Response:
+        session_id = request.match_info.get("session_id")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        topic_id = body.get("topic_id")
+        if not session_id or not topic_id:
+            return web.json_response({"error": "missing session_id or topic_id"}, status=400)
+        self._session_id_topics[session_id].add(topic_id)
+        return web.json_response({"ok": True})
+
+    async def remove_topic(self, request: web.Request) -> web.Response:
+        session_id = request.match_info.get("session_id")
+        topic_id = request.match_info.get("topic_id")
+        if not session_id or not topic_id:
+            return web.json_response({"error": "missing session_id or topic_id"}, status=400)
+        if session_id in self._session_id_topics:
+            self._session_id_topics[session_id].discard(topic_id)
+            if not self._session_id_topics[session_id]:
+                del self._session_id_topics[session_id]
+        return web.json_response({"ok": True})
+
+    async def delete_session(self, request: web.Request) -> web.Response:
+        session_id = request.match_info.get("session_id")
+        if not session_id:
+            return web.json_response({"error": "missing session_id"}, status=400)
+        self._session_id_web_sockets.pop(session_id, None)
+        self._session_id_executions_dict.pop(session_id, None)
+        self._session_id_topics.pop(session_id, None)
+        # Remove any execution_id -> session mapping entries for this session
+        to_delete = [eid for eid, sid in self._execution_id_session_id_dict.items() if sid == session_id]
+        for eid in to_delete:
+            del self._execution_id_session_id_dict[eid]
+        return web.json_response({"ok": True})
+
+    async def state(self, request: web.Request) -> web.Response:
+        """Request current state for sessions; publish via websockets and/or topics.
+
+        Body: {"sessions": ["session-1", ...], "topic_id": "optional"}
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"error": "invalid json"}, status=400)
+        sessions = body.get("sessions") or []
+        explicit_topic = body.get("topic_id")
+        if not isinstance(sessions, list) or not all(isinstance(s, str) for s in sessions):
+            return web.json_response({"error": "sessions must be a list of strings"}, status=400)
+
+        for session_id in sessions:
+            execution_refs = self._session_id_executions_dict.get(session_id, [])
+            execution_ids = [ref.execution_id for ref in execution_refs]
+            state = self._action_service.get_execution_state(execution_ids)
+            snapshot = ActionServerWebsocketSnapshot(
+                type="snapshot",
+                session_id=session_id,
+                execution_ids=execution_ids,
+                processes=_processes_state_list_to_dict(state.get("processes")),
+            )
+            payload = snapshot.model_dump(exclude_defaults=True)
+            # Send to websockets for the session
+            for ws in list(self._session_id_web_sockets.get(session_id, [])):
+                try:
+                    await ws.send_json(payload)
+                except Exception:
+                    # Best-effort
+                    pass
+            # Publish to topic(s)
+            topics = set()
+            if explicit_topic:
+                topics.add(explicit_topic)
+            topics |= set(self._session_id_topics.get(session_id, set()))
+            for topic_id in topics:
+                try:
+                    await self._topic_manager.publish(topic_id, payload)
+                except Exception as e:
+                    print(f"Error publishing snapshot to topic {topic_id}: {e}")
+        return web.json_response({"ok": True})
+
 class ActionServerRouteHandler:
     def __init__(self, instance_app_key: web.AppKey):
         self._instance_app_key = instance_app_key
@@ -298,6 +398,18 @@ class ActionServerRouteHandler:
 
     async def sessions(self, request: web.Request) -> web.Response:
         return await request.app[self._instance_app_key].sessions(request)
+
+    async def add_topic(self, request: web.Request) -> web.Response:
+        return await request.app[self._instance_app_key].add_topic(request)
+
+    async def remove_topic(self, request: web.Request) -> web.Response:
+        return await request.app[self._instance_app_key].remove_topic(request)
+
+    async def delete_session(self, request: web.Request) -> web.Response:
+        return await request.app[self._instance_app_key].delete_session(request)
+
+    async def state(self, request: web.Request) -> web.Response:
+        return await request.app[self._instance_app_key].state(request)
 
 
 @web.middleware
@@ -327,6 +439,11 @@ def make_action_server_web_app(action_server: ActionServer) -> web.Application:
             web.get("/websocket", route_handler.websocket),
             web.post("/execute", route_handler.execute),
             web.get("/sessions", route_handler.sessions),
+            web.post("/sessions/{session_id}/topics", route_handler.add_topic),
+            web.delete("/sessions/{session_id}/topics/{topic_id}", route_handler.remove_topic),
+            web.delete("/sessions/{session_id}", route_handler.delete_session),
+            web.get("/topics/{topic_id}/stream", lambda r: r.app[instance_app_key]._topic_manager.stream_endpoint(r)),
+            web.post("/state", route_handler.state),
         ]
     )
     cors = aiohttp_cors.setup(app, defaults={

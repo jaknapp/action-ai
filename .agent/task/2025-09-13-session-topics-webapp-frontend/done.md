@@ -1,1 +1,6 @@
 - [x] Create task folder and seed todo, log, done (2025-09-13T02:07:40Z)
+- [x] Design in-memory pub/sub topic manager for action-terminal (2025-09-13T03:10:08Z)
+- [x] Add session-to-topic subscription management APIs to action-terminal (2025-09-13T03:10:08Z)
+- [x] Stream terminal output and session state to topics in action-terminal (2025-09-13T03:10:08Z)
+- [x] Expose state query API for sessions in action-terminal (2025-09-13T03:10:08Z)
+- [x] Add unit and integration tests for topics and state (2025-09-13T03:10:08Z)

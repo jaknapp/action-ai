@@ -13,7 +13,8 @@ class TestTerminal:
     def terminal(self):
         pid = 1234
         terminal_fd = 10
-        return Terminal(pid, terminal_fd)
+        sentinel_fd = 11
+        return Terminal(pid, terminal_fd, sentinel_fd)
 
     @pytest.fixture
     def mock_timer_start(self, mocker):
@@ -25,21 +26,36 @@ class TestTerminal:
 
     def test_init(self, terminal):
         assert terminal.pid == 1234
-        assert terminal._terminal_fd == 10
+        assert terminal.master_fd == 10
 
     @patch("os.write")
     def test_send_input(self, mock_write, terminal):
         input_data = "ls\n"
         terminal.send_input(input_data)
-        mock_write.assert_called_once_with(terminal._terminal_fd, input_data.encode())
+        # write_all_to_fd may call os.write multiple times with memoryviews.
+        # Validate that at least one write attempted to send the full payload.
+        expected = input_data.encode()
+        saw_full_payload = False
+        for call in mock_write.call_args_list:
+            if not call.args:
+                continue
+            if call.args[0] != terminal.master_fd:
+                continue
+            payload = call.args[1]
+            if isinstance(payload, memoryview):
+                payload = payload.tobytes()
+            if payload == expected:
+                saw_full_payload = True
+                break
+        assert saw_full_payload
 
-    @patch("os.getpgid", return_value=1234)
+    @patch("action.app.terminal.get_fg_pgid", return_value=1234)
     @patch("os.killpg")
     def test_send_signal_with_str(self, mock_killpg, mock_getpgid, terminal):
         terminal.send_signal("SIGINT")
         mock_killpg.assert_called_once_with(1234, signal.SIGINT)
 
-    @patch("os.getpgid", return_value=1234)
+    @patch("action.app.terminal.get_fg_pgid", return_value=1234)
     @patch("os.killpg")
     def test_send_signal_with_int(self, mock_killpg, mock_getpgid, terminal):
         terminal.send_signal(signal.SIGTERM)
@@ -48,7 +64,7 @@ class TestTerminal:
     def test_send_signal_getpgid_error(self, terminal):
         """Test handling of exceptions when os.getpgid fails."""
         with (
-            patch("os.getpgid", side_effect=Exception("getpgid failed")),
+            patch("action.app.terminal.get_fg_pgid", side_effect=Exception("getpgid failed")),
             pytest.raises(Exception) as excinfo,
         ):
             terminal.send_signal(15)  # Use any signal number or name
@@ -71,7 +87,7 @@ class TestTerminal:
     ):
         outputs = [b"Hello World\n", b"(.venv) %n@%m %1~ %# "]
         mock_read.side_effect = outputs
-        mock_select.return_value = ([terminal._terminal_fd], [], [])
+        mock_select.return_value = ([terminal.master_fd], [], [])
 
         result = terminal.read()
 
@@ -92,7 +108,7 @@ class TestTerminal:
         output_after_stop_mark = " command output after stop"
 
         with (
-            patch("select.select", return_value=([terminal._terminal_fd], [], [])),
+            patch("select.select", return_value=([terminal.master_fd], [], [])),
             patch(
                 "os.read",
                 side_effect=[
@@ -132,7 +148,7 @@ class TestTerminal:
         flag should be True.
         """
         with (
-            patch("select.select", return_value=([terminal._terminal_fd], [], [])),
+            patch("select.select", return_value=([terminal.master_fd], [], [])),
             patch(
                 "os.read",
                 side_effect=[
@@ -188,7 +204,7 @@ class TestTerminal:
             patch("time.perf_counter", side_effect=[0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 9]),
             patch("os.read", return_value=partial_output.encode()),
         ):
-            mock_select.side_effect = [([terminal._terminal_fd], [], []), ([], [], [])]
+            mock_select.side_effect = [([terminal.master_fd], [], []), ([], [], [])]
             result = terminal.read(
                 stop_mark=None, timeout_perf_counter=8, idle_timeout=4
             )

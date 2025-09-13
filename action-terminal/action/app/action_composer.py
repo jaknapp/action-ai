@@ -5,18 +5,21 @@ from aiohttp import web
 from action.app.action_server import ActionServer, make_action_server_web_app
 from action.app.action_server_runner import ActionServerRunner
 from action.app.action_service import ActionService
+from action.app.topic_manager import TopicManager
 
 
 class ActionComposer:
     def compose_action_server_web_app(self) -> Tuple[ActionServer, web.Application]:
         action_service = ActionService()
-        action_server = ActionServer(action_service)
+        topic_manager = TopicManager()
+        action_server = ActionServer(action_service, topic_manager)
         app = make_action_server_web_app(action_server)
         return action_server, app
 
     def compose_server_runner(self) -> ActionServerRunner:
         action_service = ActionService()
-        action_server = ActionServer(action_service)
+        topic_manager = TopicManager()
+        action_server = ActionServer(action_service, topic_manager)
         app = make_action_server_web_app(action_server)
         return ActionServerRunner(app=app, port=5001)
 

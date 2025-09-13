@@ -211,6 +211,97 @@ class TestActionServer:
         )
         await web_socket.close()
 
+    async def test_topic_stream_and_add_remove(self, setup_test_client: TestClient):
+        session_id = "session-topic-1"
+        topic_id = "topic-alpha"
+        # Subscribe the server-side SSE to the topic
+        sse = await setup_test_client.get(f"/topics/{topic_id}/stream")
+        assert sse.status == 200
+
+        # Associate topic with session
+        resp = await setup_test_client.post(
+            f"/sessions/{session_id}/topics", json={"topic_id": topic_id}
+        )
+        assert resp.status == 200
+
+        # Produce a loopback payload which should be fanned out to topic
+        await setup_test_client.post(
+            "/execute",
+            json=dict(
+                session=dict(session_id=session_id),
+                loopback_payload="hello-topic",
+            ),
+        )
+
+        # Read a few SSE lines until data arrives
+        async def read_sse_event(resp, timeout=2.0):
+            deadline = asyncio.get_event_loop().time() + timeout
+            buffer = b""
+            while asyncio.get_event_loop().time() < deadline:
+                chunk = await asyncio.wait_for(resp.content.readany(), timeout=0.5)
+                if not chunk:
+                    continue
+                buffer += chunk
+                # Attempt to parse simple single-line data events
+                if b"\n\n" in buffer:
+                    events = buffer.split(b"\n\n")
+                    for ev in events:
+                        if ev.startswith(b"data: "):
+                            return json.loads(ev[len(b"data: "):].decode("utf-8"))
+            return None
+
+        payload = await read_sse_event(sse)
+        assert payload is not None
+        assert payload.get("session_id") == session_id
+        assert payload.get("loopback_payload") == "hello-topic"
+
+        # Remove topic and ensure removal API works
+        resp = await setup_test_client.delete(
+            f"/sessions/{session_id}/topics/{topic_id}"
+        )
+        assert resp.status == 200
+
+        # Cleanup
+        await sse.release()
+
+    async def test_state_endpoint_publishes_snapshot(self, setup_test_client: TestClient):
+        session_id = "session-state-1"
+        topic_id = "topic-state"
+        # Open SSE stream for the topic
+        sse = await setup_test_client.get(f"/topics/{topic_id}/stream")
+        assert sse.status == 200
+
+        # Request state publish with explicit topic (no executions yet)
+        resp = await setup_test_client.post(
+            "/state", json={"sessions": [session_id], "topic_id": topic_id}
+        )
+        assert resp.status == 200
+
+        # Expect a snapshot message on SSE
+        async def read_sse_event(resp, timeout=2.0):
+            deadline = asyncio.get_event_loop().time() + timeout
+            buffer = b""
+            while asyncio.get_event_loop().time() < deadline:
+                chunk = await asyncio.wait_for(resp.content.readany(), timeout=0.5)
+                if not chunk:
+                    continue
+                buffer += chunk
+                if b"\n\n" in buffer:
+                    events = buffer.split(b"\n\n")
+                    for ev in events:
+                        if ev.startswith(b"data: "):
+                            return json.loads(ev[len(b"data: "):].decode("utf-8"))
+            return None
+
+        payload = await read_sse_event(sse)
+        assert payload is not None
+        assert payload.get("type") == "snapshot"
+        assert payload.get("session_id") == session_id
+        assert payload.get("execution_ids") == []
+        assert payload.get("processes") == {}
+
+        await sse.release()
+
     async def test_execute_new_process_new_commands(
         self, setup_test_client: TestClient
     ):

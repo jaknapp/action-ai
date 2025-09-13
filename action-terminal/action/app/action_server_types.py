@@ -59,3 +59,12 @@ class ActionServerWebsocketSnapshot(BaseModel):
     session_id: str
     execution_ids: list[str]
     processes: dict[str, ActionServerSnapshotProcessState]
+
+
+class ActionServerAddTopicRequest(BaseModel):
+    topic_id: str
+
+
+class ActionServerStateRequest(BaseModel):
+    sessions: list[str]
+    topic_id: str | None = None
