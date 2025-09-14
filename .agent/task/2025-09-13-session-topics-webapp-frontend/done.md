@@ -7,3 +7,6 @@
 - [x] Add Postgres docker-compose for action-webapp (2025-09-13T17:51:16Z)
 - [x] Add SQLAlchemy models and Alembic setup (2025-09-13T17:51:16Z)
 - [x] Create initial Alembic migration for core tables (2025-09-13T17:51:16Z)
+- [x] Implement sessions CRUD and queue subscription in action-webapp (2025-09-14T03:14:45Z)
+- [x] Persist incoming messages to Postgres in action-webapp (2025-09-14T03:14:45Z)
+- [x] Add API to fetch session data and incremental updates (2025-09-14T03:14:45Z)

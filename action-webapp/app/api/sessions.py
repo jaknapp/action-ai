@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.db import models
+from app.core.config import settings
+import httpx
 
 router = APIRouter()
 
@@ -43,6 +45,12 @@ async def add_topic(session_id: str, payload: dict, db: Session = Depends(get_db
         raise HTTPException(status_code=404, detail='session not found')
     db.add(models.SessionTopic(session_id=session_id, topic_id=topic_id))
     db.commit()
+    # Best-effort: notify action-terminal to associate topic with session
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(f"{settings.ACTION_TERMINAL_URL}/sessions/{session_id}/topics", json={"topic_id": topic_id}, timeout=2.0)
+    except Exception:
+        pass
     return {"ok": True}
 
 

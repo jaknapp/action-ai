@@ -6,9 +6,9 @@
 - [x] Expose state query API for sessions in action-terminal
 - [x] Add unit and integration tests for topics and state
 - [ ] Scaffold action-webapp (FastAPI, SQLAlchemy, Alembic, Postgres)
-- [ ] Implement sessions CRUD and queue subscription in action-webapp
-- [ ] Persist incoming messages to Postgres in action-webapp
-- [ ] Add API to fetch session data and incremental updates
+- [x] Implement sessions CRUD and queue subscription in action-webapp
+- [x] Persist incoming messages to Postgres in action-webapp
+- [x] Add API to fetch session data and incremental updates
 - [ ] Add unit and integration tests for action-webapp
 - [ ] Scaffold frontend (Vite, React, TypeScript)
 - [ ] Implement sessions list and session detail views
